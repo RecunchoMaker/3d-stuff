@@ -1,0 +1,84 @@
+#
+# Macro to export the current open design to Slic3r
+# Based on https://www.freecadweb.org/wiki/Macro_3d_Printer_Slicer
+#
+
+
+import FreeCAD
+import Mesh
+import sys
+import math
+import os
+import subprocess
+from PyQt4 import QtCore, QtGui
+
+# You need to configure:
+# 1. Your tmp directory, where unnamed files will be saved
+TMPDIR = '/tmp/'
+# 2. Slic3r location
+SLICERDIR = "/usr/bin/"
+
+def errorDialog(msg):
+    # Create a simple dialog QMessageBox
+    # The first argument indicates the icon used: one of QtGui.QMessageBox.{NoIcon, Information, Warning, Critical, Question} 
+    diag = QtGui.QMessageBox(QtGui.QMessageBox.Warning, 'Macro', msg)
+    diag.setWindowModality(QtCore.Qt.ApplicationModal)
+    diag.exec_()
+
+def getPlacement(quat,vect,obj):
+  if quat[3] > -1  and quat[3] < 1:
+    delta = math.acos(quat[3])*2.0
+    scale = math.sin(delta/2)
+    rx = quat[0]/scale
+    ry = quat[1]/scale
+    rz = quat[2]/scale
+  else:
+    delta = 0
+    rx = 0
+    ry = 0
+    rz = 1
+  info0 = "translation "+str(vect.x)+" "+str(vect.y)+" "+str(vect.z)
+  info1 = "rotation "+str(rx)+" "+str(ry)+" "+str(rz)+" "+str(delta)
+  return info0+" "+info1
+
+# some definitions
+doc = App.ActiveDocument
+objs = doc.Objects
+placement = App.Placement(App.Vector(0,0,0),App.Rotation(0,0,0,1))
+
+# choose a name for the exported file
+if (FreeCAD.ActiveDocument.FileName == ""):
+   errorDialog("Documento sin nombre. Se guardara en " + TMPDIR)
+   OutDir = TMPDIR
+   DocLabel = "sin_nombre"
+else:
+   OutDir = FreeCAD.ActiveDocument.FileName.replace(FreeCAD.ActiveDocument.Label + ".fcstd", "")
+   DocLabel = str(doc.Label).replace(" ","_")
+
+visible_objs = []
+
+os.chdir(SLICERDIR)
+
+# hide all
+for obj in objs:
+   # check if object has "shape" (for instance, a Spreadsheet has not)
+   if obj.ViewObject.isVisible() and 'Shape' in obj.PropertiesList:
+      visible_objs.append(obj)
+
+for obj in visible_objs:
+  # get volume
+  volume = obj.Shape.Volume
+  # get Rotation and translation of volume
+  quat = obj.Placement.Rotation.Q
+  vect = obj.Placement.Base
+  pinfo = getPlacement(quat,vect,obj)
+  # reset placement, export it and set at original placement
+  oldPlacement = obj.Placement
+  obj.Placement = placement
+  obj.Placement = oldPlacement   
+
+stlFile = OutDir+DocLabel+"_"+visible_objs[0].Label + ".stl"
+
+Mesh.export(visible_objs,stlFile)
+# subprocess.Popen([SLICER + "slic3r", stlFile]) 
+subprocess.Popen([SLICERDIR + "/slic3r", "--gui", stlFile])
